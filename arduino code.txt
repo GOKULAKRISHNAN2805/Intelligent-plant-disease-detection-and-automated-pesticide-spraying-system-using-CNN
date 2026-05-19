@@ -1,0 +1,167 @@
+#include <Arduino.h>
+#include <U8g2lib.h>
+#include <Wire.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ArduinoJson.h>
+
+// =========================
+// U8g2 OLED (Your pins: SDA=21, SCL=22)
+// =========================
+U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* scl=*/ 22, /* sda=*/ 21);
+
+// =========================
+// Pins & Variables
+// =========================
+#define RELAY_PIN  4
+
+String currentDisease = "No Disease";
+float currentConfidence = 0.0;
+String pumpStatus = "READY";
+
+const char* ssid = "ssid";
+const char* password = "pass";
+
+WebServer server(80);
+
+// =========================
+// Handle Trigger from Python CNN
+// =========================
+void handleTrigger() {
+  if (server.hasArg("plain")) {
+    StaticJsonDocument<300> doc;
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+
+    if (!error) {
+      currentDisease = doc["disease"].as<String>();
+      currentConfidence = doc["confidence"];
+
+      pumpStatus = "READY";  // Reset before spraying
+
+      updateOLED();
+
+      // Auto spray if high confidence
+      if (currentConfidence > 80) {
+        sprayPesticide();
+      }
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+// =========================
+// Spray Pesticide Function
+// =========================
+void sprayPesticide() {
+  pumpStatus = "SPRAYING...";
+  updateOLED();
+
+  digitalWrite(RELAY_PIN, HIGH);   // Pump ON
+  delay(8000);                     // Adjust spray time (5-10 seconds)
+  digitalWrite(RELAY_PIN, LOW);    // Pump OFF
+
+  pumpStatus = "SPRAYED";
+  updateOLED();
+
+  delay(2500);                     // Show "SPRAYED" for 2.5 sec
+  pumpStatus = "READY";
+  updateOLED();
+}
+
+// =========================
+// Update OLED Display
+// =========================
+void updateOLED() {
+  u8g2.firstPage();
+  do {
+    // === Title ===
+    u8g2.setFont(u8g2_font_ncenB10_tr);
+    u8g2.drawStr(12, 14, "Smart Farming");
+
+    // === Disease Name ===
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(0, 28, "Disease :");
+
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    String dispDisease = currentDisease;
+    if (dispDisease.length() > 18) {
+      dispDisease = dispDisease.substring(0, 15) + "...";
+    }
+    u8g2.drawStr(5, 40, dispDisease.c_str());
+
+    // === Confidence Level ===
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(0, 50, "Conf    :");
+
+    char confStr[12];
+    sprintf(confStr, "%.1f %%", currentConfidence);
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(55, 50, confStr);
+
+    // === Pump Status ===
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(0, 62, "Pump    :");
+
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    
+    if (pumpStatus == "SPRAYING...") {
+      u8g2.setDrawColor(1);
+      u8g2.drawStr(55, 62, "SPRAYING");
+    }
+    else if (pumpStatus == "SPRAYED") {
+      u8g2.drawStr(55, 62, "SPRAYED");
+    }
+    else {
+      u8g2.drawStr(55, 62, "READY");
+    }
+
+  } while (u8g2.nextPage());
+}
+
+// =========================
+// Setup
+// =========================
+void setup() {
+  Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);
+
+  u8g2.begin();
+
+  // Welcome Screen
+  u8g2.firstPage();
+  do {
+    u8g2.setFont(u8g2_font_ncenB10_tr);
+    u8g2.drawStr(20, 25, "Smart Agri");
+    u8g2.drawStr(15, 42, "System Ready");
+  } while (u8g2.nextPage());
+
+  delay(2000);
+
+  // WiFi Connection
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+  Serial.print("ESP32 IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // Start Server
+  server.on("/trigger", HTTP_POST, handleTrigger);
+  server.begin();
+  Serial.println("✅ HTTP Server Ready - Waiting for CNN trigger");
+
+  // Initial OLED
+  updateOLED();
+}
+
+// =========================
+// Loop
+// =========================
+void loop() {
+  server.handleClient();
+  delay(10);
+}
