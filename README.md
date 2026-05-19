@@ -189,20 +189,6 @@ Captured leaf images
 
 through Telegram Bot API for remote monitoring.
 
-📁 Project Structure
-AI-Plant-Disease-Detection/
-│
-├── README.md
-├── plant_detection.py
-├── esp32_code.ino
-├── model.pth
-├── classes.pth
-├── requirements.txt
-├── dataset/
-├── outputs/
-├── images/
-├── screenshots/
-└── Project_Report.pdf
 📦 Installation
 Clone Repository
 git clone https://github.com/yourusername/AI-Plant-Disease-Detection.git
